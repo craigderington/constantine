@@ -2,17 +2,18 @@ from celery import Celery
 from celery.schedules import crontab
 from datetime import datetime, timedelta
 from celery.utils.log import get_task_logger
+from requests.auth import HTTPBasicAuth
 import random
 import requests
-from requests.auth import HTTPBasicAuth
+import config
 
-app = Celery(__name__,
-             broker="amqp://172.17.0.2/",
-             backend="rpc://")
+# create the celery app
+app = Celery(__name__, broker=config.CELERY_BROKER_URL, backend="rpc://")
 
+# logger utility
 logger = get_task_logger(__name__)
 
-
+# setup the periodic tasks
 @app.on_after_configure.connect
 def setup_periodic_tasks(sender, **kwargs):
     sender.add_periodic_task(10.0, log.s(datetime.now().strftime("%c")), name="Log Message Every 10 seconds.")
@@ -22,17 +23,16 @@ def setup_periodic_tasks(sender, **kwargs):
         log.s("Today is: {}".format(datetime.now().strftime("%c"))),
     )
 
-
-
-@app.task
+# sample task, log message
+@app.task(queue="newusers", max_retries=3)
 def log(msg):
     logger.info(msg)
 
 
-@app.task
+@app.task(queue="newusers", max_retries=3)
 def get_randoms():
     """ Get a list of random users """
-    url = "https://randomuser.me/api/?nat=us&results=500"
+    url = "https://randomuser.me/api/?nat=us&results=5000"
     api_method = "GET"
     hdr = {"content-type": "application/json", "user-agent": "SimplePythonFoo()"}
     user = dict()
@@ -57,9 +57,9 @@ def get_randoms():
         logger.info("RandomUser website returned HTTP Error: {}".format(str(http_err)))
 
 
-@app.task
+@app.task(queue="showusers", max_retries=3)
 def show_user(user):
-
+    """ Show our new random user """
     GREETINGS = ["Halo", "Hello", "Hallo", "Guten Morgen", "Good Day", "Yo!"]
 
     if not isinstance(user, dict):
@@ -67,3 +67,4 @@ def show_user(user):
 
     person = "{} {} {}".format(user["title"], user["fname"], user["lname"])
     logger.info(random.choice(GREETINGS) + " " + person)
+    return str(person)
